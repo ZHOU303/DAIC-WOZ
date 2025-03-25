@@ -93,7 +93,6 @@ def main():
     video_dir = r'D:\DAIC-WOZ\parameter\visual'
     label_file = r'D:\DAIC-WOZ\train_split_Depression_AVEC2017.csv'
 
-
     batch_size = 16
     dataset = MultiModalDataset(text_dir, audio_dir, video_dir, label_file)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
@@ -138,13 +137,31 @@ def main():
     model.eval()
     all_preds = []
     all_labels = []
+    total_mae = 0.0
+    total_rmse = 0.0
+    sample_count = 0
+
     with torch.no_grad():
         for i, (text, audio, video, labels) in enumerate(dataloader):
             text, audio, video, labels = text.to(device), audio.to(device), video.to(device), labels.to(device)
             outputs = model(text, audio, video)
 
-            all_preds.extend(outputs.detach().cpu().numpy())
-            all_labels.extend(labels.cpu().numpy())
+            preds = outputs.detach().cpu().numpy().flatten()
+            labels = labels.cpu().numpy().flatten()
+
+            mae = mean_absolute_error(labels, preds)
+            rmse = np.sqrt(mean_squared_error(labels, preds))
+
+            total_mae += mae
+            total_rmse += rmse
+            sample_count += len(labels)
+
+            all_preds.extend(preds)
+            all_labels.extend(labels)
+ 
+    # Print MAE and RMSE for all samples
+    print(f'Total MAE Sum: {total_mae:.4f}')
+    print(f'Total RMSE Sum: {total_rmse:.4f}')
 
     # Print real labels and predicted labels
     all_preds = np.array(all_preds).flatten()
@@ -153,7 +170,7 @@ def main():
     print("Predict label values:", all_preds)
 
     # Save model
-    torch.save(model.state_dict(), "multi_modal_model.pth")
+    #torch.save(model.state_dict(), "multi_modal_model.pth")
     print("Model saved successfully!")
 
 if __name__ == '__main__':
