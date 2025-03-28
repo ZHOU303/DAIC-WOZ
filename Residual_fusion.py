@@ -33,57 +33,68 @@ class MultiModalModel(nn.Module):
     def __init__(self):
         super(MultiModalModel, self).__init__()
 
-        # Text modal residual block
+        # Text modal processing with Convolutional Layers 
         self.text_conv1 = nn.Conv2d(256, 128, kernel_size=3, padding=1)
         self.text_bn1 = nn.BatchNorm2d(128)
         self.text_conv2 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
         self.text_bn2 = nn.BatchNorm2d(128)
-        self.text_proj = nn.Conv2d(256, 128, kernel_size=1)  
+        self.text_proj = nn.Conv2d(256, 128, kernel_size=1)
 
-        # Audio modal residual block
+        # Audio modal processing with Convolutional Layers 
         self.audio_conv1 = nn.Conv2d(256, 128, kernel_size=3, padding=1)
         self.audio_bn1 = nn.BatchNorm2d(128)
         self.audio_conv2 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
         self.audio_bn2 = nn.BatchNorm2d(128)
-        self.audio_proj = nn.Conv2d(256, 128, kernel_size=1) 
+        self.audio_proj = nn.Conv2d(256, 128, kernel_size=1)
 
-        # Video modal residual block
+        # Video modal processing with Convolutional Layers 
         self.video_conv1 = nn.Conv2d(256, 128, kernel_size=3, padding=1)
         self.video_bn1 = nn.BatchNorm2d(128)
         self.video_conv2 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
         self.video_bn2 = nn.BatchNorm2d(128)
-        self.video_proj = nn.Conv2d(256, 128, kernel_size=1)  
+        self.video_proj = nn.Conv2d(256, 128, kernel_size=1)
 
-        # Weight parameters (learnable)
-        self.alpha = nn.Parameter(torch.tensor(0.33))
-        self.beta = nn.Parameter(torch.tensor(0.33))
-        self.gamma = nn.Parameter(torch.tensor(0.34))
+        # Learnable weights for skip connections
+        self.alpha = nn.Parameter(torch.tensor(0.5))  # Learnable parameter for fusion: Text + Video
+        self.beta = nn.Parameter(torch.tensor(0.5))   # Learnable parameter for fusion: Text + Audio
 
-        self.fc1 = nn.Linear(128 * 28 * 28, 512)
-        self.fc2 = nn.Linear(512, 1)
+        # Fusion of text (with residual video) and audio features
+        self.fusion_fc = nn.Linear(301056, 128) 
+        # Final prediction layer
+        self.fc1 = nn.Linear(128, 64)
+        self.fc2 = nn.Linear(64, 1)
+
+        # Dropout layer (dropout probability set to 0.3)
+        self.dropout = nn.Dropout(0.3)
 
     def forward(self, text, audio, video):
-        # Text residual
+    
         res_text = F.relu(self.text_bn1(self.text_conv1(text)))
         res_text = self.text_bn2(self.text_conv2(res_text)) + self.text_proj(text)  
         res_text = F.relu(res_text)
 
-        # Audio residual
-        res_audio = F.relu(self.audio_bn1(self.audio_conv1(audio)))
-        res_audio = self.audio_bn2(self.audio_conv2(res_audio)) + self.audio_proj(audio)  
-        res_audio = F.relu(res_audio)
-
-        # Video residual
+      
         res_video = F.relu(self.video_bn1(self.video_conv1(video)))
         res_video = self.video_bn2(self.video_conv2(res_video)) + self.video_proj(video)  
         res_video = F.relu(res_video)
 
-        # Modal fusion
-        fused = self.alpha * res_text + self.beta * res_audio + self.gamma * res_video
+        res_text = self.alpha * res_video + (1 - self.alpha) * res_text  
 
-        fused = fused.view(fused.size(0), -1)
+        res_audio = F.relu(self.audio_bn1(self.audio_conv1(audio)))  
+        res_audio = self.audio_bn2(self.audio_conv2(res_audio)) + self.audio_proj(audio)  
+        res_audio = F.relu(res_audio)
 
-        out = F.relu(self.fc1(fused))
+        res_text = self.beta * res_audio + (1 - self.beta) * res_text  
+
+        # Flatten all features before passing to fully connected layer
+        res_text = res_text.view(res_text.size(0), -1)  
+
+        # Fusion of text+video+audio features
+        fusion = torch.cat((res_audio.view(res_audio.size(0), -1), res_text, res_video.view(res_video.size(0), -1)), dim=1)  
+        fusion = F.relu(self.fusion_fc(fusion))
+
+        # Final classification
+        out = F.relu(self.fc1(fusion))
         out = self.fc2(out)
         return out
 
@@ -93,7 +104,7 @@ def main():
     video_dir = r'D:\DAIC-WOZ\parameter\visual'
     label_file = r'D:\DAIC-WOZ\train_split_Depression_AVEC2017.csv'
 
-    batch_size = 16
+    batch_size = 24
     dataset = MultiModalDataset(text_dir, audio_dir, video_dir, label_file)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
